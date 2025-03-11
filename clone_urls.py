@@ -1,0 +1,150 @@
+import json
+import time
+import threading
+import requests
+import urllib.parse
+
+API_KEY = "mettez-ici-votre-api-key"
+BASE_URL = "https://uqload.net/"
+CLONE_URL = BASE_URL  # URL pour la requête POST
+RESULT_BASE = BASE_URL  # Pour construire l'URL finale
+
+# Entêtes HTTP tels que fournis pour l'envoi et la réception
+HEADERS = {
+    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7",
+    "Accept-Encoding": "gzip, deflate, br, zstd",
+    "Accept-Language": "fr,fr-FR;q=0.9,en;q=0.8,en-GB;q=0.7,en-US;q=0.6",
+    "Cache-Control": "max-age=0",
+    "Content-Type": "application/x-www-form-urlencoded",
+    "Cookie": "_ga=GA1.1.87507877.1741470608; _ga_49F5JJ5589=GS1.1.1741611436.3.0.1741611437.0.0.0; advanced=0; xfsts=xhn5kr3rdzed7np9; login=pecorioV-1; upload_mode=clone; per_page=500",
+    "Origin": "https://uqload.net",
+    "Referer": "https://uqload.net/?op=upload_clone",
+    "Sec-CH-UA": "\"Chromium\";v=\"134\", \"Not:A-Brand\";v=\"24\", \"Microsoft Edge\";v=\"134\"",
+    "Sec-CH-UA-Mobile": "?0",
+    "Sec-CH-UA-Platform": "\"Windows\"",
+    "Sec-Fetch-Dest": "document",
+    "Sec-Fetch-Mode": "navigate",
+    "Sec-Fetch-Site": "same-origin",
+    "Sec-Fetch-User": "?1",
+    "Upgrade-Insecure-Requests": "1",
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/134.0.0.0 Safari/537.36 Edg/134.0.0.0"
+}
+
+session = requests.Session()
+
+# Vérification des infos de compte (optionnel)
+account_info_url = f"{BASE_URL}api/account/info?key={API_KEY}"
+r = session.get(account_info_url, headers=HEADERS)
+print("Infos compte :", r.text)
+COOKIES = session.cookies.get_dict()
+print("Cookies récupérés :", COOKIES)
+
+# Chargement des films contenant les liens Uqload
+with open("film_data_results.json", "r", encoding="utf-8") as file:
+    films = json.load(file)
+
+# Extraction des liens Uqload avec titre et image
+uqload_links = []
+for film in films:
+    for link in film["links"]:
+        if link["service"].lower() == "uqload":
+            uqload_links.append({
+                "title": film["title"],
+                "image_url": film["image_url"],
+                "uqload_url": link["url"]
+            })
+
+print(f"{len(uqload_links)} liens Uqload extraits.")
+
+# Variables partagées et synchronisation
+updated_links = []
+processed_links = set()
+data_lock = threading.Lock()
+
+def process_link(item):
+    attempts = 2
+    for attempt in range(attempts):
+        try:
+            # Transformation du lien si nécessaire (passage de "embed-" à une URL standard)
+            url_to_clone = item["uqload_url"]
+            if "embed-" in url_to_clone:
+                print(f"Transformation du lien embed pour {item['title']}")
+                url_to_clone = url_to_clone.replace("embed-", "")
+                print(f"  Lien transformé : {url_to_clone}")
+            print(f"Processing: {url_to_clone}")
+            
+            # Préparation des données du POST
+            payload = {
+                "op": "upload_clone",
+                "urls": url_to_clone,
+                "submit_btn": "Clone URLs",
+                "key": API_KEY
+            }
+            
+            # Envoi de la requête POST sans suivre la redirection
+            response = session.post(CLONE_URL, data=payload, headers=HEADERS, cookies=COOKIES, allow_redirects=False)
+            if response.status_code != 302:
+                raise Exception(f"Statut inattendu : {response.status_code}")
+            
+            location = response.headers.get("Location")
+            if not location:
+                raise Exception("En-tête Location manquant dans la réponse")
+            
+            # Extraction du paramètre 'fn' depuis l'URL de redirection
+            parsed = urllib.parse.parse_qs(urllib.parse.urlparse(location).query)
+            fn_list = parsed.get("fn")
+            if not fn_list:
+                raise Exception("Paramètre 'fn' introuvable dans l'URL de redirection")
+            fn_value = fn_list[0]
+            new_uqload_link = f"{RESULT_BASE}{fn_value}.html"
+            if not new_uqload_link.endswith(".html"):
+                raise Exception(f"Lien invalide récupéré : {new_uqload_link}")
+            
+            # Vérification par une requête GET sur le nouveau lien
+            get_response = session.get(new_uqload_link, headers=HEADERS, cookies=COOKIES)
+            if get_response.status_code != 200:
+                raise Exception(f"Erreur GET pour {new_uqload_link}: statut {get_response.status_code}")
+            
+            print(f"✅ {item['title']} -> {new_uqload_link}")
+            
+            # Sauvegarde des résultats
+            with data_lock:
+                if item["uqload_url"] not in processed_links:
+                    processed_links.add(item["uqload_url"])
+                    updated_links.append({
+                        "title": item["title"],
+                        "image_url": item["image_url"],
+                        "uqload_old_url": item["uqload_url"],
+                        "uqload_new_url": new_uqload_link
+                    })
+                    with open("uqload_updated_links.json", "w", encoding="utf-8") as file:
+                        json.dump(updated_links, file, indent=4, ensure_ascii=False)
+            break  # Traitement réussi
+
+        except Exception as e:
+            print(f"❌ Erreur pour {item['title']} - {e}")
+            if attempt < attempts - 1:
+                time.sleep(1)
+                continue
+            else:
+                break
+
+# Séparation des liens en pairs et impairs pour éviter les doublons
+pair_links = [item for index, item in enumerate(uqload_links) if index % 2 == 0]
+impar_links = [item for index, item in enumerate(uqload_links) if index % 2 != 0]
+
+def process_links_thread(links):
+    for link in links:
+        process_link(link)
+
+# Exécution sur deux threads séparés
+thread1 = threading.Thread(target=process_links_thread, args=(pair_links,))
+thread2 = threading.Thread(target=process_links_thread, args=(impar_links,))
+
+thread1.start()
+thread2.start()
+
+thread1.join()
+thread2.join()
+
+print("✅ Processus terminé. Résultats enregistrés dans '/root/Downloads/uqload_updated_links.json'.")
