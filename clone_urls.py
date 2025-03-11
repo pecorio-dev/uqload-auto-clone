@@ -4,12 +4,13 @@ import threading
 import requests
 import urllib.parse
 
+# === CONFIGURATION ===
 API_KEY = "mettez-ici-votre-api-key"
 BASE_URL = "https://uqload.net/"
-CLONE_URL = BASE_URL  # URL pour la requête POST
-RESULT_BASE = BASE_URL  # Pour construire l'URL finale
+CLONE_URL = BASE_URL          # URL pour la requête POST
+RESULT_BASE = BASE_URL        # Pour construire l'URL finale
 
-# Entêtes HTTP tels que fournis pour l'envoi et la réception
+# === En-têtes HTTP tels que fournis pour l'envoi et la réception ===
 HEADERS = {
     "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7",
     "Accept-Encoding": "gzip, deflate, br, zstd",
@@ -32,35 +33,56 @@ HEADERS = {
 
 session = requests.Session()
 
-# Vérification des infos de compte (optionnel)
+# === Vérification des infos de compte (optionnel) ===
 account_info_url = f"{BASE_URL}api/account/info?key={API_KEY}"
 r = session.get(account_info_url, headers=HEADERS)
 print("Infos compte :", r.text)
 COOKIES = session.cookies.get_dict()
 print("Cookies récupérés :", COOKIES)
 
-# Chargement des films contenant les liens Uqload
-with open("film_data_results.json", "r", encoding="utf-8") as file:
-    films = json.load(file)
+# === Fonction de lecture et d'analyse du fichier JSON ===
+def lire_donnees_json(file_path):
+    """
+    Charge le fichier JSON et extrait les films.
+    Pour chaque film, extrait le titre, l'image (facultatif) et l'URL Uqload si le service est 'uqload'.
+    Retourne une liste de dictionnaires.
+    """
+    try:
+        with open(file_path, "r", encoding="utf-8") as file:
+            data = json.load(file)
+    except Exception as e:
+        print(f"Erreur lors de la lecture du fichier JSON : {e}")
+        return []
 
-# Extraction des liens Uqload avec titre et image
-uqload_links = []
-for film in films:
-    for link in film["links"]:
-        if link["service"].lower() == "uqload":
-            uqload_links.append({
-                "title": film["title"],
-                "image_url": film["image_url"],
-                "uqload_url": link["url"]
-            })
+    films_extraits = []
+    for film in data:
+        titre = film.get("title", "Titre inconnu")
+        image_url = film.get("image_url", "")  # Facultatif
+        if "links" in film and isinstance(film["links"], list):
+            for link in film["links"]:
+                if link.get("service", "").lower() == "uqload":
+                    url = link.get("url", "")
+                    films_extraits.append({
+                        "title": titre,
+                        "image_url": image_url,
+                        "uqload_url": url
+                    })
+    return films_extraits
 
+# Chargement et analyse du fichier JSON source
+films = lire_donnees_json("film_data_results.json")
+print(f"{len(films)} films extraits du fichier JSON.")
+
+# On utilise directement la liste extraite pour traiter les liens Uqload
+uqload_links = films
 print(f"{len(uqload_links)} liens Uqload extraits.")
 
-# Variables partagées et synchronisation
+# === Variables partagées et synchronisation ===
 updated_links = []
 processed_links = set()
 data_lock = threading.Lock()
 
+# === Fonction de traitement d'un lien ===
 def process_link(item):
     attempts = 2
     for attempt in range(attempts):
@@ -107,7 +129,7 @@ def process_link(item):
             
             print(f"✅ {item['title']} -> {new_uqload_link}")
             
-            # Sauvegarde des résultats
+            # Sauvegarde des résultats dans le fichier de sortie
             with data_lock:
                 if item["uqload_url"] not in processed_links:
                     processed_links.add(item["uqload_url"])
@@ -129,7 +151,7 @@ def process_link(item):
             else:
                 break
 
-# Séparation des liens en pairs et impairs pour éviter les doublons
+# === Séparation des liens en pairs et impairs pour éviter les doublons ===
 pair_links = [item for index, item in enumerate(uqload_links) if index % 2 == 0]
 impar_links = [item for index, item in enumerate(uqload_links) if index % 2 != 0]
 
@@ -147,4 +169,4 @@ thread2.start()
 thread1.join()
 thread2.join()
 
-print("✅ Processus terminé. Résultats enregistrés dans '/root/Downloads/uqload_updated_links.json'.")
+print("✅ Processus terminé. Résultats enregistrés dans 'uqload_updated_links.json'.")
