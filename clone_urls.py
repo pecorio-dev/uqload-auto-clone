@@ -12,12 +12,12 @@ RESULT_BASE = BASE_URL        # Pour construire l'URL finale
 
 # === En-têtes HTTP tels que fournis pour l'envoi et la réception ===
 HEADERS = {
-    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7",
-    "Accept-Encoding": "gzip, deflate, br, zstd",
-    "Accept-Language": "fr,fr-FR;q=0.9,en;q=0.8,en-GB;q=0.7,en-US;q=0.6",
-    "Cache-Control": "max-age=0",
-    "Content-Type": "application/x-www-form-urlencoded",
-    "Cookie": "_ga=GA1.1.87507877.1741470608; _ga_49F5JJ5589=GS1.1.1741611436.3.0.1741611437.0.0.0; advanced=0; xfsts=xhn5kr3rdzed7np9; login=pecorioV-1; upload_mode=clone; per_page=500",
+    "Accept": "",
+    "Accept-Encoding": "",
+    "Accept-Language": "",
+    "Cache-Control": "",
+    "Content-Type": "",
+    "Cookie": "",
     "Origin": "https://uqload.net",
     "Referer": "https://uqload.net/?op=upload_clone",
     "Sec-CH-UA": "\"Chromium\";v=\"134\", \"Not:A-Brand\";v=\"24\", \"Microsoft Edge\";v=\"134\"",
@@ -170,3 +170,4 @@ thread1.join()
 thread2.join()
 
 print("✅ Processus terminé. Résultats enregistrés dans 'uqload_updated_links.json'.")
+
